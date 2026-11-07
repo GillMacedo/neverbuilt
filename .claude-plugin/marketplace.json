@@ -1,0 +1,14 @@
+{
+  "name": "neverbuilt-marketplace",
+  "description": "Marketplace for neverbuilt, which finds Go files that CI never compiles because of build tags or GOOS and GOARCH constraints.",
+  "owner": {
+    "name": "Giulliano Macedo"
+  },
+  "plugins": [
+    {
+      "name": "neverbuilt",
+      "source": "./plugin",
+      "description": "Find Go files your CI never compiles (build tags, _windows.go and other platform files, cgo) and check that they still compile."
+    }
+  ]
+}

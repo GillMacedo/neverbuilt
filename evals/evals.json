@@ -1,0 +1,27 @@
+[
+  {
+    "skills": ["finding-never-compiled-files"],
+    "query": "CI is green, but are our integration tests behind build tags still compiling?",
+    "expected_behavior": [
+      "Reads the CI workflow and Makefile to find each GOOS, GOARCH, -tags and cgo setting that go test or go vet uses",
+      "Runs neverbuilt with one --ci flag per configuration",
+      "Lists each ERROR with the file and compiler message, and suggests a compile-only step such as go test -tags integration -run '^$' ./..."
+    ]
+  },
+  {
+    "skills": ["finding-never-compiled-files"],
+    "query": "I renamed a struct field. Did I break any _windows.go or _darwin.go files?",
+    "expected_behavior": [
+      "Runs neverbuilt with the project's CI configurations, or linux/amd64 if it can't tell, and says which it used",
+      "Reports which platform files fail to compile and doesn't edit code unless asked"
+    ]
+  },
+  {
+    "skills": ["finding-never-compiled-files"],
+    "query": "Which GOOS, GOARCH and -tags should our CI matrix add so every Go file is compiled at least once?",
+    "expected_behavior": [
+      "Quotes the 'also run CI with' list from neverbuilt",
+      "Says which warnings weren't verified, such as cgo builds for other platforms, and treats exit code 2 as unknown"
+    ]
+  }
+]
