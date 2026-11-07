@@ -987,6 +987,9 @@ func goList(goCmd, dir string, c config, args []string) ([]listPkg, error) {
 			if p.Error != nil {
 				why = ": " + oneLine(p.Error.Err)
 			}
+			if p.Error != nil && strings.Contains(p.Error.Err, "malformed import path") {
+				return nil, unusable("go list for %s found a directory whose name is not a valid import path (%q): %s", c, p.ImportPath, oneLine(p.Error.Err))
+			}
 			return nil, unusable("go list output for %s has a package with no directory (%q)%s", c, p.ImportPath, why)
 		}
 		if real, err := filepath.EvalSymlinks(p.Dir); err == nil {
