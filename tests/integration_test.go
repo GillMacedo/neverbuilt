@@ -189,13 +189,60 @@ func TestShipyardJSON(t *testing.T) {
 	var rep struct {
 		Files, Covered, Errors, Warnings int
 		Findings                         []struct{ Severity, Kind, File, Config string }
-		Suggested                        []string
+		CI                               []string `json:"ci"`
+		Suggested                        []string `json:"suggested"`
+		CIConfigs                        []struct {
+			GOOS   string   `json:"goos"`
+			GOARCH string   `json:"goarch"`
+			Tags   []string `json:"tags"`
+			Cgo    bool     `json:"cgo"`
+		} `json:"ci_configs"`
+		SuggestedConfigs []struct {
+			GOOS   string   `json:"goos"`
+			GOARCH string   `json:"goarch"`
+			Tags   []string `json:"tags"`
+			Cgo    bool     `json:"cgo"`
+		} `json:"suggested_configs"`
 	}
 	if err := json.Unmarshal([]byte(r.stdout), &rep); err != nil {
 		t.Fatalf("bad JSON: %v\n%s", err, r.stdout)
 	}
 	if rep.Files != 12 || rep.Covered != 7 || rep.Errors != 3 || rep.Warnings != 2 {
 		t.Errorf("counts = %+v", rep)
+	}
+	if len(rep.CI) != 1 || rep.CI[0] != "linux/amd64" || len(rep.CIConfigs) != 1 {
+		t.Errorf("CI configs = %v / %+v", rep.CI, rep.CIConfigs)
+	} else {
+		ci := rep.CIConfigs[0]
+		if ci.GOOS != "linux" || ci.GOARCH != "amd64" || ci.Tags == nil || len(ci.Tags) != 0 || ci.Cgo {
+			t.Errorf("structured CI config = %+v", ci)
+		}
+	}
+	wantSuggested := map[string]bool{
+		"linux/amd64,integration": false,
+		"windows/amd64":           false,
+	}
+	for _, c := range rep.SuggestedConfigs {
+		name := c.GOOS + "/" + c.GOARCH
+		if len(c.Tags) > 0 {
+			name += "," + strings.Join(c.Tags, ",")
+		}
+		if c.Cgo {
+			name += ",cgo"
+		}
+		if _, ok := wantSuggested[name]; !ok {
+			t.Errorf("unexpected suggested config: %+v", c)
+			continue
+		}
+		wantSuggested[name] = true
+	}
+	if len(rep.Suggested) != 2 || len(rep.SuggestedConfigs) != 2 {
+		t.Errorf("suggestions = %v / %+v", rep.Suggested, rep.SuggestedConfigs)
+	}
+	for name, seen := range wantSuggested {
+		if !seen {
+			t.Errorf("missing structured suggested config %q", name)
+		}
 	}
 	kinds := map[string]string{}
 	for _, f := range rep.Findings {

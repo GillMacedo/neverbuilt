@@ -42,7 +42,7 @@ const (
 type config struct {
 	GOOS   string   `json:"goos"`
 	GOARCH string   `json:"goarch"`
-	Tags   []string `json:"tags,omitempty"`
+	Tags   []string `json:"tags"`
 	Cgo    bool     `json:"cgo"`
 }
 
@@ -59,6 +59,12 @@ func (c config) String() string {
 }
 
 func (c config) port() string { return c.GOOS + "/" + c.GOARCH }
+
+// structuredConfig keeps tags as an empty JSON array when a config has none.
+func structuredConfig(c config) config {
+	c.Tags = append([]string{}, c.Tags...)
+	return c
+}
 
 // env returns the environment for running the go command in this config.
 // GOFLAGS -tags is overridden by the explicit -tags flag we pass.
@@ -128,17 +134,19 @@ type finding struct {
 }
 
 type report struct {
-	Tool      string    `json:"tool"`
-	Version   string    `json:"version"`
-	Dir       string    `json:"dir"`
-	CI        []string  `json:"ci"`
-	Files     int       `json:"files"`
-	Covered   int       `json:"covered"`
-	Findings  []finding `json:"findings"`
-	Suggested []string  `json:"suggested,omitempty"`
-	Errors    int       `json:"errors"`
-	Warnings  int       `json:"warnings"`
-	Compiled  bool      `json:"compiled"`
+	Tool             string    `json:"tool"`
+	Version          string    `json:"version"`
+	Dir              string    `json:"dir"`
+	CI               []string  `json:"ci"`
+	CIConfigs        []config  `json:"ci_configs"`
+	Files            int       `json:"files"`
+	Covered          int       `json:"covered"`
+	Findings         []finding `json:"findings"`
+	Suggested        []string  `json:"suggested,omitempty"`
+	SuggestedConfigs []config  `json:"suggested_configs"`
+	Errors           int       `json:"errors"`
+	Warnings         int       `json:"warnings"`
+	Compiled         bool      `json:"compiled"`
 }
 
 type options struct {
@@ -395,6 +403,7 @@ func check(opts options, ports map[string]portInfo) (*report, error) {
 	rep := &report{Tool: "neverbuilt", Version: version, Dir: opts.dir, Files: len(files) + len(ignoredBad), Compiled: !opts.noCompile}
 	for _, c := range opts.ci {
 		rep.CI = append(rep.CI, c.String())
+		rep.CIConfigs = append(rep.CIConfigs, structuredConfig(c))
 	}
 	for _, rel := range ignoredBad {
 		rep.Findings = append(rep.Findings, finding{
@@ -483,11 +492,14 @@ func check(opts options, ports map[string]portInfo) (*report, error) {
 		todo = append(todo, &pending{f: f, cands: cands})
 	}
 
+	rep.SuggestedConfigs = []config{}
 	suggested := map[string]bool{}
-	suggest := func(k string) {
+	suggest := func(c config) {
+		k := c.String()
 		if !suggested[k] {
 			suggested[k] = true
 			rep.Suggested = append(rep.Suggested, k)
+			rep.SuggestedConfigs = append(rep.SuggestedConfigs, structuredConfig(c))
 		}
 	}
 	host := runtime.GOOS + "/" + runtime.GOARCH
@@ -516,7 +528,7 @@ func check(opts options, ports map[string]portInfo) (*report, error) {
 			g := groups[k]
 			cfg := g[0].cands[g[0].idx]
 			if opts.noCompile {
-				suggest(k)
+				suggest(cfg)
 				for _, p := range g {
 					rep.Findings = append(rep.Findings, finding{
 						Severity: sevWarn, Kind: "never-compiled", File: p.f.Rel, Config: k,
@@ -566,7 +578,7 @@ func check(opts options, ports map[string]portInfo) (*report, error) {
 						fd.Message = fmt.Sprintf("never compiled by CI; compiles on its own for %s, as go run %s would build it, but go build ./... for %s fails because the directory also has package %s files",
 							k, filepath.Base(p.f.Rel), k, otherPkg(p.f, byDir))
 					} else {
-						suggest(k)
+						suggest(cfg)
 					}
 					if p.first != nil {
 						fd.Details = append([]string{"fails for " + p.fcfg + ":"}, indent(p.first.lines())...)
@@ -587,7 +599,12 @@ func check(opts options, ports map[string]portInfo) (*report, error) {
 				}
 				fd := failure(p.f, p.first, p.fcfg, p.skipped, p.skipWhy, p.cands)
 				rep.Findings = append(rep.Findings, fd)
-				suggest(fd.Config)
+				for _, candidate := range p.cands {
+					if candidate.String() == fd.Config {
+						suggest(candidate)
+						break
+					}
+				}
 			}
 		}
 		todo = next
