@@ -1,6 +1,6 @@
 {
   "name": "neverbuilt",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Find Go files your CI never compiles because of build tags, GOOS or GOARCH file suffixes, or cgo, and check whether they still compile. Integration tests behind -tags and _windows.go files rot silently while CI stays green.",
   "author": {
     "name": "Giulliano Macedo",

@@ -4,6 +4,11 @@ All notable changes are documented here, in [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-08
+
+### Added
+- Add structured CI configs to JSON output (#8)
+
 ## [0.1.0] - 2026-11-07
 
 ### Added
