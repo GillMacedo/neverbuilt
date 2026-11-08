@@ -71,7 +71,7 @@ The `label redeclared` error comes from the typo: `!widows` is true on Windows, 
 
 - **`--ignore-tag`** marks files that aren't meant to compile, such as generators with `//go:build ignore`. They're listed as notes. The default is `ignore,tools`.
 - **`--no-compile`** only lists the files CI skips.
-- **`--format json`** prints the same findings for scripts and agents.
+- **`--format json`** prints the same findings for scripts and agents. The `ci_configs` and `suggested_configs` arrays contain configuration objects with `goos`, `goarch`, `tags` and `cgo` fields. The report also includes the `ci` and `suggested` string arrays.
 - **`--fail-on`** sets the lowest severity that exits 1: `warn` by default, or `error` or `none`.
 
 Exit 0 means every Go file is compiled by at least one `--ci` configuration, apart from ignored files. Exit 1 means findings. Exit 2 means bad usage or an input it couldn't trust: a Go file that's empty, cut off or not Go, a bad `//go:build` line, an unreadable `go.mod`, a `--ci` value that isn't a real port, or `go list` failing or printing something that isn't valid output. Exit 2 ignores `--fail-on`, and it prints no summary.
