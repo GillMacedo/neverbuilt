@@ -1,0 +1,70 @@
+# Example workflow for checking Go files that the test job's CI builds cover.
+name: Example CI with neverbuilt
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            tags: ""
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            tags: integration
+          - runner: windows-latest
+            goos: windows
+            goarch: amd64
+            tags: ""
+          - runner: macos-latest
+            goos: darwin
+            goarch: arm64
+            tags: ""
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: true
+
+      - name: Run tests
+        shell: bash
+        env:
+          TAGS: ${{ matrix.tags }}
+        run: |
+          if [ -z "$TAGS" ]; then
+            go test ./...
+          else
+            go test -tags="$TAGS" ./...
+          fi
+
+  neverbuilt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: true
+
+      # Findings (exit 1) and an incomplete check (exit 2) both fail this job.
+      - name: Check untracked build files with neverbuilt
+        run: >-
+          go run github.com/GillMacedo/neverbuilt/plugin/scripts@v0.1.0
+          --dir .
+          --ci linux/amd64
+          --ci linux/amd64,integration
+          --ci windows/amd64
+          --ci darwin/arm64
