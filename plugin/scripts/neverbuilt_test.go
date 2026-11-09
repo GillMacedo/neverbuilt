@@ -26,8 +26,8 @@ func testPorts() map[string]portInfo {
 func TestParseSpec(t *testing.T) {
 	ports := testPorts()
 	good := map[string]config{
-		"linux/amd64":             {GOOS: "linux", GOARCH: "amd64"},
-		" linux/amd64 ":           {GOOS: "linux", GOARCH: "amd64"},
+		"linux/amd64":             {GOOS: "linux", GOARCH: "amd64", Tags: []string{}},
+		" linux/amd64 ":           {GOOS: "linux", GOARCH: "amd64", Tags: []string{}},
 		"linux/amd64,integration": {GOOS: "linux", GOARCH: "amd64", Tags: []string{"integration"}},
 		"linux/amd64,cgo,e2e,a":   {GOOS: "linux", GOARCH: "amd64", Tags: []string{"a", "e2e"}, Cgo: true},
 		"windows/amd64,x,x":       {GOOS: "windows", GOARCH: "amd64", Tags: []string{"x"}},
