@@ -186,23 +186,20 @@ func TestShipyardJSON(t *testing.T) {
 	if r.code != 1 {
 		t.Fatalf("exit %d, want 1:\n%s", r.code, r.stderr)
 	}
+	type config struct {
+		Name   string   `json:"-"`
+		GOOS   string   `json:"goos"`
+		GOARCH string   `json:"goarch"`
+		Tags   []string `json:"tags"`
+		Cgo    bool     `json:"cgo"`
+	}
 	var rep struct {
 		Files, Covered, Errors, Warnings int
 		Findings                         []struct{ Severity, Kind, File, Config string }
 		CI                               []string `json:"ci"`
 		Suggested                        []string `json:"suggested"`
-		CIConfigs                        []struct {
-			GOOS   string   `json:"goos"`
-			GOARCH string   `json:"goarch"`
-			Tags   []string `json:"tags"`
-			Cgo    bool     `json:"cgo"`
-		} `json:"ci_configs"`
-		SuggestedConfigs []struct {
-			GOOS   string   `json:"goos"`
-			GOARCH string   `json:"goarch"`
-			Tags   []string `json:"tags"`
-			Cgo    bool     `json:"cgo"`
-		} `json:"suggested_configs"`
+		CIConfigs                        []config `json:"ci_configs"`
+		SuggestedConfigs                 []config `json:"suggested_configs"`
 	}
 	if err := json.Unmarshal([]byte(r.stdout), &rep); err != nil {
 		t.Fatalf("bad JSON: %v\n%s", err, r.stdout)
@@ -218,30 +215,21 @@ func TestShipyardJSON(t *testing.T) {
 			t.Errorf("structured CI config = %+v", ci)
 		}
 	}
-	wantSuggested := map[string]bool{
-		"linux/amd64,integration": false,
-		"windows/amd64":           false,
+	wantSuggested := []config{
+		{Name: "linux/amd64,integration", GOOS: "linux", GOARCH: "amd64", Tags: []string{"integration"}},
+		{Name: "windows/amd64", GOOS: "windows", GOARCH: "amd64", Tags: []string{}},
 	}
-	for _, c := range rep.SuggestedConfigs {
-		name := c.GOOS + "/" + c.GOARCH
-		if len(c.Tags) > 0 {
-			name += "," + strings.Join(c.Tags, ",")
-		}
-		if c.Cgo {
-			name += ",cgo"
-		}
-		if _, ok := wantSuggested[name]; !ok {
-			t.Errorf("unexpected suggested config: %+v", c)
-			continue
-		}
-		wantSuggested[name] = true
-	}
-	if len(rep.Suggested) != 2 || len(rep.SuggestedConfigs) != 2 {
+	if len(rep.Suggested) != len(wantSuggested) || len(rep.SuggestedConfigs) != len(wantSuggested) {
 		t.Errorf("suggestions = %v / %+v", rep.Suggested, rep.SuggestedConfigs)
-	}
-	for name, seen := range wantSuggested {
-		if !seen {
-			t.Errorf("missing structured suggested config %q", name)
+	} else {
+		for i, want := range wantSuggested {
+			if rep.Suggested[i] != want.Name {
+				t.Errorf("suggested[%d] = %q, want %q", i, rep.Suggested[i], want.Name)
+			}
+			got := rep.SuggestedConfigs[i]
+			if got.GOOS != want.GOOS || got.GOARCH != want.GOARCH || got.Tags == nil || strings.Join(got.Tags, ",") != strings.Join(want.Tags, ",") || got.Cgo != want.Cgo {
+				t.Errorf("suggested_configs[%d] = %+v, want %+v", i, got, want)
+			}
 		}
 	}
 	kinds := map[string]string{}
@@ -267,6 +255,27 @@ func TestFixedIsQuietWithFullMatrix(t *testing.T) {
 	r := runTool(t, nil, args(examples(t, "shipyard-fixed"), fixedCI...)...)
 	assertClean(t, r)
 	mustContain(t, r, "10 of 11 Go files are compiled by a CI config; the other 1 is skipped on purpose")
+}
+
+func TestFixedJSONEmitsEmptySuggestionArrays(t *testing.T) {
+	argv := append(args(examples(t, "shipyard-fixed"), fixedCI...), "--format", "json")
+	r := runTool(t, nil, argv...)
+	if r.code != 0 {
+		t.Fatalf("exit %d, want 0:\n%s%s", r.code, r.stdout, r.stderr)
+	}
+	var rep struct {
+		Suggested        []string          `json:"suggested"`
+		SuggestedConfigs []json.RawMessage `json:"suggested_configs"`
+	}
+	if err := json.Unmarshal([]byte(r.stdout), &rep); err != nil {
+		t.Fatalf("bad JSON: %v\n%s", err, r.stdout)
+	}
+	if rep.Suggested == nil || len(rep.Suggested) != 0 {
+		t.Errorf("suggested = %v, want empty array", rep.Suggested)
+	}
+	if rep.SuggestedConfigs == nil || len(rep.SuggestedConfigs) != 0 {
+		t.Errorf("suggested_configs = %v, want empty array", rep.SuggestedConfigs)
+	}
 }
 
 func TestFixedWithLinuxOnly(t *testing.T) {
