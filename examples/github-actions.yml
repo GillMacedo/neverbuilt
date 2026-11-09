@@ -3,6 +3,7 @@ name: Example CI with neverbuilt
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -31,9 +32,9 @@ jobs:
             goarch: arm64
             tags: ""
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: stable
           cache: true
@@ -42,6 +43,7 @@ jobs:
         shell: bash
         env:
           TAGS: ${{ matrix.tags }}
+          CGO_ENABLED: "0"
         run: |
           if [ -z "$TAGS" ]; then
             go test ./...
@@ -52,14 +54,16 @@ jobs:
   neverbuilt:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: stable
           cache: true
 
-      # Findings (exit 1) and an incomplete check (exit 2) both fail this job.
+      # Keep this list in entry-for-entry sync with the test job's matrix above.
+# Findings (neverbuilt exit 1) and incomplete checks (neverbuilt exit 2)
+# both cause go run to exit non-zero and fail this job.
       - name: Check untracked build files with neverbuilt
         run: >-
           go run github.com/GillMacedo/neverbuilt/plugin/scripts@v0.1.0
