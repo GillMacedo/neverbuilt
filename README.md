@@ -62,6 +62,8 @@ The `label redeclared` error comes from the typo: `!widows` is true on Windows, 
 
 ## Usage
 
+See [examples/github-actions.yml](examples/github-actions.yml) for a GitHub Actions workflow that runs `neverbuilt` against the build configurations in its test matrix.
+
     neverbuilt [--dir DIR] [--ci GOOS/GOARCH[,tag...][,cgo]]... [--ignore-tag T,...]
                [--no-compile] [--format text|json] [--fail-on warn|error|none]
 
