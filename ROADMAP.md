@@ -2,7 +2,6 @@
 
 ## Next
 - Read GOOS, GOARCH and `-tags` from `.github/workflows/*.yml` matrices, labeled as a guess the user confirms
-- A GitHub Action example that runs `neverbuilt` with the same matrix as the test job
 - Check file name suffixes for typos too, such as `_widnows.go`
 
 ## Later
