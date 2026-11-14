@@ -46,6 +46,10 @@ type config struct {
 	Cgo    bool     `json:"cgo"`
 }
 
+func newConfig(goos, goarch string, tags []string, cgo bool) config {
+	return config{GOOS: goos, GOARCH: goarch, Tags: append([]string{}, tags...), Cgo: cgo}
+}
+
 func (c config) String() string {
 	s := c.GOOS + "/" + c.GOARCH
 	parts := append([]string(nil), c.Tags...)
@@ -59,12 +63,6 @@ func (c config) String() string {
 }
 
 func (c config) port() string { return c.GOOS + "/" + c.GOARCH }
-
-// structuredConfig keeps tags as an empty JSON array when a config has none.
-func structuredConfig(c config) config {
-	c.Tags = append([]string{}, c.Tags...)
-	return c
-}
 
 // env returns the environment for running the go command in this config.
 // GOFLAGS -tags is overridden by the explicit -tags flag we pass.
@@ -142,7 +140,7 @@ type report struct {
 	Files            int       `json:"files"`
 	Covered          int       `json:"covered"`
 	Findings         []finding `json:"findings"`
-	Suggested        []string  `json:"suggested,omitempty"`
+	Suggested        []string  `json:"suggested"`
 	SuggestedConfigs []config  `json:"suggested_configs"`
 	Errors           int       `json:"errors"`
 	Warnings         int       `json:"warnings"`
@@ -290,7 +288,7 @@ var tagRE = regexp.MustCompile(`^[A-Za-z0-9_.]+$`)
 
 // parseSpec reads GOOS/GOARCH[,tag...]. The tag "cgo" sets CGO_ENABLED=1.
 func parseSpec(s string, ports map[string]portInfo) (config, error) {
-	var c config
+	c := newConfig("", "", nil, false)
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return c, unusable("--ci is empty; want GOOS/GOARCH[,tag...], such as linux/amd64,integration")
@@ -400,10 +398,14 @@ func check(opts options, ports map[string]portInfo) (*report, error) {
 		}
 	}
 
-	rep := &report{Tool: "neverbuilt", Version: version, Dir: opts.dir, Files: len(files) + len(ignoredBad), Compiled: !opts.noCompile}
+	rep := &report{
+		Tool: "neverbuilt", Version: version, Dir: opts.dir, Files: len(files) + len(ignoredBad),
+		CI: []string{}, CIConfigs: []config{}, Suggested: []string{}, SuggestedConfigs: []config{},
+		Compiled: !opts.noCompile,
+	}
 	for _, c := range opts.ci {
 		rep.CI = append(rep.CI, c.String())
-		rep.CIConfigs = append(rep.CIConfigs, structuredConfig(c))
+		rep.CIConfigs = append(rep.CIConfigs, c)
 	}
 	for _, rel := range ignoredBad {
 		rep.Findings = append(rep.Findings, finding{
@@ -492,14 +494,13 @@ func check(opts options, ports map[string]portInfo) (*report, error) {
 		todo = append(todo, &pending{f: f, cands: cands})
 	}
 
-	rep.SuggestedConfigs = []config{}
 	suggested := map[string]bool{}
 	suggest := func(c config) {
 		k := c.String()
 		if !suggested[k] {
 			suggested[k] = true
 			rep.Suggested = append(rep.Suggested, k)
-			rep.SuggestedConfigs = append(rep.SuggestedConfigs, structuredConfig(c))
+			rep.SuggestedConfigs = append(rep.SuggestedConfigs, c)
 		}
 	}
 	host := runtime.GOOS + "/" + runtime.GOARCH
@@ -1420,7 +1421,7 @@ func matchPort(f *goFile, tags []string, order []portInfo, cgoOnly bool) (config
 			ctxt.ToolTags = toolTags(p.GOARCH)
 			ok, err := ctxt.MatchFile(filepath.Dir(f.Abs), filepath.Base(f.Abs))
 			if err == nil && ok {
-				return config{GOOS: p.GOOS, GOARCH: p.GOARCH, Tags: tags, Cgo: cgo}, true
+				return newConfig(p.GOOS, p.GOARCH, tags, cgo), true
 			}
 		}
 	}
