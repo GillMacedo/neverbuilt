@@ -717,3 +717,15 @@ func TestIgnoredTemplateIsSkipped(t *testing.T) {
 	}))
 	assertUntrusted(t, r, "unparseable file without ignore tag")
 }
+
+func TestFileNameSuffixTypo(t *testing.T) {
+	dir := writeModule(t, map[string]string{
+		"lock_widnows.go": "package p\n\nfunc lockDir() {}\n",
+		"ok_windows.go":   "package p\n\nfunc ok() {}\n",
+	})
+	r := runTool(t, nil, args(dir)...)
+	mustContain(t, r, `file name suffix "widnows" looks like a misspelling of "windows"`)
+	if strings.Contains(r.stdout, `file name suffix "windows"`) {
+		t.Errorf("healthy suffix was flagged as a typo:\n%s", r.stdout)
+	}
+}

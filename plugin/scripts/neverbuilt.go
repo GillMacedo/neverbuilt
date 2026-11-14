@@ -453,6 +453,32 @@ func check(opts options, ports map[string]portInfo) (*report, error) {
 				})
 			}
 		}
+		// File-name suffixes like _windows.go and _linux_amd64.go name a
+		// GOOS or GOARCH. A misspelled suffix (lock_widnows.go) is not a
+		// known platform, so the file is compiled on every platform and
+		// nothing warns about the typo. Compare the last one or two
+		// underscore-separated parts of the base name against the known
+		// names, using the same distance rules as typoHint.
+		{
+			base := strings.TrimSuffix(filepath.Base(f.Rel), ".go")
+			parts := strings.Split(base, "_")
+			var suffixes []string
+			if n := len(parts); n >= 1 {
+				suffixes = append(suffixes, parts[n-1])
+			}
+			if n := len(parts); n >= 2 {
+				suffixes = append(suffixes, parts[n-2])
+			}
+			for _, suf := range suffixes {
+				if hint := typoHint(suf, known, 0); hint != "" {
+					rep.Findings = append(rep.Findings, finding{
+						Severity: sevWarn, Kind: "typo", File: f.Rel,
+						Message: fmt.Sprintf("file name suffix %q looks like a misspelling of %q", suf, hint),
+					})
+					break
+				}
+			}
+		}
 		if covered[f.Abs] {
 			rep.Covered++
 			continue
