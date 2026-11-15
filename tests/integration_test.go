@@ -720,11 +720,17 @@ func TestIgnoredTemplateIsSkipped(t *testing.T) {
 
 func TestFileNameSuffixTypo(t *testing.T) {
 	dir := writeModule(t, map[string]string{
-		"lock_widnows.go": "package p\n\nfunc lockDir() {}\n",
-		"ok_windows.go":   "package p\n\nfunc ok() {}\n",
+		"lock_widnows.go":      "package p\n\nfunc lockDir() {}\n",
+		"lock_widnows_test.go": "package p\n\nimport \"testing\"\n\nfunc TestLock(t *testing.T) {}\n",
+		"ok_windows.go":        "package p\n\nfunc ok() {}\n",
+		"main_window.go":       "package p\n\nfunc main() {}\n",
+		"window.go":            "package p\n\nfunc window() {}\n",
 	})
 	r := runTool(t, nil, args(dir)...)
 	mustContain(t, r, `file name suffix "widnows" looks like a misspelling of "windows"`)
+	if strings.Contains(r.stdout, `file name suffix "window"`) {
+		t.Errorf("ordinary word was flagged as a typo:\n%s", r.stdout)
+	}
 	if strings.Contains(r.stdout, `file name suffix "windows"`) {
 		t.Errorf("healthy suffix was flagged as a typo:\n%s", r.stdout)
 	}
