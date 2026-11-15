@@ -727,11 +727,24 @@ func TestFileNameSuffixTypo(t *testing.T) {
 		"window.go":            "package p\n\nfunc window() {}\n",
 	})
 	r := runTool(t, nil, args(dir)...)
+
+	// lock_widnows.go and lock_widnows_test.go should be flagged for the widnows typo
+	mustContain(t, r, `lock_widnows.go`)
+	mustContain(t, r, `lock_widnows_test.go`)
 	mustContain(t, r, `file name suffix "widnows" looks like a misspelling of "windows"`)
-	if strings.Contains(r.stdout, `file name suffix "window"`) {
-		t.Errorf("ordinary word was flagged as a typo:\n%s", r.stdout)
-	}
-	if strings.Contains(r.stdout, `file name suffix "windows"`) {
-		t.Errorf("healthy suffix was flagged as a typo:\n%s", r.stdout)
+
+	// These files must NOT be flagged for any file-name suffix typo
+	quietFiles := []string{"ok_windows.go", "main_window.go", "window.go"}
+	for _, f := range quietFiles {
+		// Check that if the file appears in output, it's not for a "file name suffix" typo
+		lines := strings.Split(r.stdout, "\n")
+		for i, line := range lines {
+			if strings.Contains(line, f) && i+1 < len(lines) {
+				nextLine := lines[i+1]
+				if strings.Contains(nextLine, "file name suffix") {
+					t.Errorf("%s was flagged for a file name suffix typo:\n%s", f, r.stdout)
+				}
+			}
+		}
 	}
 }
