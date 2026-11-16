@@ -474,20 +474,39 @@ func check(opts options, ports map[string]portInfo) (*report, error) {
 				for _, a := range knownArch {
 					archSet[a] = true
 				}
-				var suffixes []string
-				if n := len(parts); n >= 1 {
-					suffixes = append(suffixes, parts[n-1])
+				osSet := map[string]bool{}
+				for _, o := range knownOS {
+					osSet[o] = true
 				}
-				if n := len(parts); n >= 2 && archSet[parts[n-1]] {
-					suffixes = append(suffixes, parts[n-2])
-				}
-				for _, suf := range suffixes {
-					if hint := typoHint(suf, known, 0); hint != "" && len(suf) == len(hint) {
+				n := len(parts)
+				if n >= 1 {
+					last := parts[n-1]
+					// Last part is in GOARCH position: check against GOARCH names.
+					if hint := typoHintInSet(last, archSet); hint != "" && len(last) == len(hint) {
 						rep.Findings = append(rep.Findings, finding{
 							Severity: sevWarn, Kind: "typo", File: f.Rel,
-							Message: fmt.Sprintf("file name suffix %q looks like a misspelling of %q", suf, hint),
+							Message: fmt.Sprintf("file name suffix %q looks like a misspelling of %q", last, hint),
 						})
-						break
+					} else if !archSet[last] {
+						// Last part is not a known GOARCH: it might be a mistaken GOOS suffix.
+						// go/build ignores GOOS without a following GOARCH, but flag
+						// strict matches (transpositions or same-length near misses).
+						if hint := typoHintStrict(last, osSet); hint != "" {
+							rep.Findings = append(rep.Findings, finding{
+								Severity: sevWarn, Kind: "typo", File: f.Rel,
+								Message: fmt.Sprintf("file name suffix %q looks like a misspelling of %q", last, hint),
+							})
+						}
+					}
+				}
+				// Second-to-last part is in GOOS position only when last is a known GOARCH.
+				if n >= 2 && archSet[parts[n-1]] {
+					goos := parts[n-2]
+					if hint := typoHintInSet(goos, osSet); hint != "" && len(goos) == len(hint) {
+						rep.Findings = append(rep.Findings, finding{
+							Severity: sevWarn, Kind: "typo", File: f.Rel,
+							Message: fmt.Sprintf("file name suffix %q looks like a misspelling of %q", goos, hint),
+						})
 					}
 				}
 			}
@@ -1646,6 +1665,84 @@ func typoHint(id string, known map[string]bool, uses int) string {
 			limit = 2
 		}
 		if d <= limit && d < bestD {
+			best, bestD = k, d
+		}
+	}
+	return best
+}
+
+// typoHintInSet checks if id is a typo (distance <= 2) of any name in the
+// given set, without the letters-equivalence check. Used for suffix positions
+// where we know the expected kind (GOOS or GOARCH).
+func typoHintInSet(id string, nameSet map[string]bool) string {
+	if nameSet[id] || len(id) < 4 {
+		return ""
+	}
+	lower := strings.ToLower(id)
+	if lower != id && nameSet[lower] {
+		return lower
+	}
+	if len(id) < 5 {
+		return ""
+	}
+	var names []string
+	for k := range nameSet {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	best, bestD := "", 99
+	for _, k := range names {
+		if len(k) < 4 {
+			continue
+		}
+		if lower == k {
+			return k
+		}
+		d := levenshtein(lower, k)
+		limit := 1
+		if len(k) >= 6 {
+			limit = 2
+		}
+		if d <= limit && d < bestD {
+			best, bestD = k, d
+		}
+	}
+	return best
+}
+
+// typoHintStrict checks if id is a strict typo (transposition or same-length
+// distance-1/2) of any name in the given set. Used for standalone suffixes that
+// look like GOOS but aren't followed by a GOARCH; go/build ignores them, but
+// we flag only very close matches to avoid false positives on ordinary words.
+func typoHintStrict(id string, nameSet map[string]bool) string {
+	if nameSet[id] || len(id) < 4 {
+		return ""
+	}
+	lower := strings.ToLower(id)
+	if lower != id && nameSet[lower] {
+		return lower
+	}
+	if len(id) < 5 {
+		return ""
+	}
+	var names []string
+	for k := range nameSet {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	best, bestD := "", 99
+	for _, k := range names {
+		if len(k) < 4 || len(k) != len(id) {
+			continue // strict: only same-length matches
+		}
+		if lower == k {
+			return k
+		}
+		if letters(lower) == letters(k) {
+			continue
+		}
+		d := levenshtein(lower, k)
+		if d <= 2 && d < bestD { // distance 1 (substitution) or 2 (transposition)
 			best, bestD = k, d
 		}
 	}

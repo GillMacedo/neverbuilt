@@ -35,7 +35,7 @@ func tool(t *testing.T) string {
 			exe = ".exe"
 		}
 		toolPath = filepath.Join(dir, "neverbuilt"+exe)
-		cmd := exec.Command("go", "build", "-o", toolPath, "./plugin/scripts")
+		cmd := exec.Command("go", "build", "-buildvcs=false", "-o", toolPath, "./plugin/scripts")
 		cmd.Dir = ".."
 		buildOut, buildErr = cmd.CombinedOutput()
 	})
