@@ -464,6 +464,9 @@ func check(opts options, ports map[string]portInfo) (*report, error) {
 		// typo, because go/build never treats such a name as a platform.
 		{
 			base := strings.TrimSuffix(filepath.Base(f.Rel), ".go")
+			// go/build ignores everything before the first underscore.
+			// If there's no underscore, the whole name is the package name,
+			// not a suffix, so we don't check it.
 			if strings.Contains(base, "_") {
 				name := base[strings.Index(base, "_"):]
 				parts := strings.Split(name, "_")
