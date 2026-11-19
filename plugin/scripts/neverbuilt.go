@@ -490,6 +490,15 @@ func check(opts options, ports map[string]portInfo) (*report, error) {
 							Severity: sevWarn, Kind: "typo", File: f.Rel,
 							Message: fmt.Sprintf("file name suffix %q looks like a misspelling of %q", last, hint),
 						})
+					} else if !archSet[last] {
+						// No following GOARCH: last part is not in a GOOS position per go/build,
+						// but flag strict same-length typos of GOOS names (e.g. widnows -> windows).
+						if hint := typoHintStrict(last, osSet); hint != "" {
+							rep.Findings = append(rep.Findings, finding{
+								Severity: sevWarn, Kind: "typo", File: f.Rel,
+								Message: fmt.Sprintf("file name suffix %q looks like a misspelling of %q", last, hint),
+							})
+						}
 					}
 				}
 				// Second-to-last part is in GOOS position only when last is a known GOARCH.
