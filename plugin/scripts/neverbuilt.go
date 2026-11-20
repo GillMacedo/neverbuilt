@@ -470,6 +470,7 @@ func check(opts options, ports map[string]portInfo) (*report, error) {
 			if strings.Contains(base, "_") {
 				name := base[strings.Index(base, "_"):]
 				parts := strings.Split(name, "_")
+				// go/build removes a trailing _test before reading the suffix.
 				if len(parts) > 1 && parts[len(parts)-1] == "test" {
 					parts = parts[:len(parts)-1]
 				}
@@ -485,14 +486,16 @@ func check(opts options, ports map[string]portInfo) (*report, error) {
 				if n >= 1 {
 					last := parts[n-1]
 					// Last part is in GOARCH position: check against GOARCH names.
+					// Only flag same-length typos (transposition or substitution).
 					if hint := typoHintInSet(last, archSet); hint != "" && len(last) == len(hint) {
 						rep.Findings = append(rep.Findings, finding{
 							Severity: sevWarn, Kind: "typo", File: f.Rel,
 							Message: fmt.Sprintf("file name suffix %q looks like a misspelling of %q", last, hint),
 						})
 					} else if !archSet[last] {
-						// No following GOARCH: last part is not in a GOOS position per go/build,
-						// but flag strict same-length typos of GOOS names (e.g. widnows -> windows).
+						// No following GOARCH: last part is not in a GOOS position per go/build.
+						// Flag only strict same-length typos of GOOS names (transposition or substitution).
+						// This avoids false positives on ordinary words like "window" (vs "windows").
 						if hint := typoHintStrict(last, osSet); hint != "" {
 							rep.Findings = append(rep.Findings, finding{
 								Severity: sevWarn, Kind: "typo", File: f.Rel,
@@ -502,8 +505,10 @@ func check(opts options, ports map[string]portInfo) (*report, error) {
 					}
 				}
 				// Second-to-last part is in GOOS position only when last is a known GOARCH.
+				// go/build reads _GOOS_GOARCH (after removing _test).
 				if n >= 2 && archSet[parts[n-1]] {
 					goos := parts[n-2]
+					// Only flag same-length typos in GOOS position.
 					if hint := typoHintInSet(goos, osSet); hint != "" && len(goos) == len(hint) {
 						rep.Findings = append(rep.Findings, finding{
 							Severity: sevWarn, Kind: "typo", File: f.Rel,
