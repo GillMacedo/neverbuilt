@@ -511,8 +511,8 @@ func check(opts options, ports map[string]portInfo) (*report, error) {
 						})
 					}
 				}
-				}
 			}
+		}
 		if covered[f.Abs] {
 			rep.Covered++
 			continue
