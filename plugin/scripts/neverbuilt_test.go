@@ -375,9 +375,9 @@ func TestFileNameSuffixTypo(t *testing.T) {
 		name string
 		base string
 	}{
-		{"ok_windows.go", "ok_windows"},     // valid GOOS suffix (_windows), no following GOARCH
-		{"main_window.go", "main_window"},   // GOOS-like suffix but not followed by GOARCH
-		{"window.go", "window"},             // no underscore, not a suffix position
+		{"ok_windows.go", "ok_windows"},   // valid GOOS suffix (_windows), no following GOARCH
+		{"main_window.go", "main_window"}, // GOOS-like suffix but not followed by GOARCH
+		{"window.go", "window"},           // no underscore, not a suffix position
 	}
 
 	// Helper to check if a base name would be flagged
