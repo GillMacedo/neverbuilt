@@ -464,64 +464,17 @@ func check(opts options, ports map[string]portInfo) (*report, error) {
 		// typo, because go/build never treats such a name as a platform.
 		{
 			base := strings.TrimSuffix(filepath.Base(f.Rel), ".go")
-			// go/build ignores everything before the first underscore.
-			// If there's no underscore, the whole name is the package name,
-			// not a suffix, so we don't check it.
-			if strings.Contains(base, "_") {
-				name := base[strings.Index(base, "_"):]
-				parts := strings.Split(name, "_")
-				// go/build removes a trailing _test before reading the suffix.
-				if len(parts) > 1 && parts[len(parts)-1] == "test" {
-					parts = parts[:len(parts)-1]
-				}
-				archSet := map[string]bool{}
-				for _, a := range knownArch {
-					archSet[a] = true
-				}
-				osSet := map[string]bool{}
-				for _, o := range knownOS {
-					osSet[o] = true
-				}
-				n := len(parts)
-				if n >= 1 {
-					last := parts[n-1]
-					// Last part is in GOARCH position: check against GOARCH names.
-					// Only flag same-length typos (transposition or substitution).
-					if hint := typoHintInSet(last, archSet); hint != "" && len(last) == len(hint) {
-						rep.Findings = append(rep.Findings, finding{
-							Severity: sevWarn, Kind: "typo", File: f.Rel,
-							Message: fmt.Sprintf("file name suffix %q looks like a misspelling of %q", last, hint),
-						})
-					} else if !archSet[last] {
-						// No following GOARCH: last part is not in a GOOS position per go/build.
-						// Flag only strict same-length typos of GOOS names (transposition or substitution).
-						// This avoids false positives on ordinary words like "window" (vs "windows").
-						if hint := typoHintStrict(last, osSet); hint != "" {
-							rep.Findings = append(rep.Findings, finding{
-								Severity: sevWarn, Kind: "typo", File: f.Rel,
-								Message: fmt.Sprintf("file name suffix %q looks like a misspelling of %q", last, hint),
-							})
-						}
-					}
-				}
-				// Second-to-last part is in GOOS position only when last is a known GOARCH.
-				// go/build reads _GOOS_GOARCH (after removing _test).
-				if n >= 2 && archSet[parts[n-1]] {
-					goos := parts[n-2]
-					// Only flag same-length typos in GOOS position.
-					if hint := typoHintInSet(goos, osSet); hint != "" && len(goos) == len(hint) {
-						rep.Findings = append(rep.Findings, finding{
-							Severity: sevWarn, Kind: "typo", File: f.Rel,
-							Message: fmt.Sprintf("file name suffix %q looks like a misspelling of %q", goos, hint),
-						})
-					}
-				}
+			if part, hint := suffixTypo(base); part != "" {
+				rep.Findings = append(rep.Findings, finding{
+					Severity: sevWarn, Kind: "typo", File: f.Rel,
+					Message: fmt.Sprintf("file name suffix %q looks like a misspelling of %q", part, hint),
+				})
 			}
 		}
 		if covered[f.Abs] {
-			rep.Covered++
-			continue
-		}
+					rep.Covered++
+					continue
+				}
 		if t := ignoredBy(f, opts.ignoreTags, known, order, ports); t != "" {
 			rep.Findings = append(rep.Findings, finding{
 				Severity: sevNote, Kind: "ignored", File: f.Rel,
@@ -1678,9 +1631,10 @@ func typoHint(id string, known map[string]bool, uses int) string {
 	return best
 }
 
-// typoHintInSet checks if id is a typo (distance <= 2) of any name in the
+// typoHintInSet checks if id is a typo (Damerau distance <= 1) of any name in the
 // given set, without the letters-equivalence check. Used for suffix positions
-// where we know the expected kind (GOOS or GOARCH).
+// where we know the expected kind (GOOS or GOARCH). Damerau distance counts
+// adjacent transpositions as one edit, so "lniux" -> "linux" is distance 1.
 func typoHintInSet(id string, nameSet map[string]bool) string {
 	if nameSet[id] || len(id) < 4 {
 		return ""
@@ -1705,22 +1659,21 @@ func typoHintInSet(id string, nameSet map[string]bool) string {
 		if lower == k {
 			return k
 		}
-		d := levenshtein(lower, k)
-		limit := 1
-		if len(k) >= 6 {
-			limit = 2
-		}
-		if d <= limit && d < bestD {
+		d := damerauLevenshtein(lower, k)
+		if d <= 1 && d < bestD {
 			best, bestD = k, d
 		}
 	}
 	return best
 }
 
-// typoHintStrict checks if id is a strict typo (transposition or same-length
-// distance-1/2) of any name in the given set. Used for standalone suffixes that
-// look like GOOS but aren't followed by a GOARCH; go/build ignores them, but
-// we flag only very close matches to avoid false positives on ordinary words.
+// typoHintStrict checks if id is a strict typo of any name in the given set.
+// Used for standalone suffixes that look like GOOS but aren't followed by a
+// GOARCH; go/build ignores them, so we flag only very close matches to avoid
+// false positives on ordinary words like "window" (vs "windows").
+// Allowed matches:
+//   - Pure adjacent transposition (damerau=1, levenshtein=2, same length)
+//   - Single substitution on longer names (>=6 chars): damerau=1, levenshtein=1, same length
 func typoHintStrict(id string, nameSet map[string]bool) string {
 	if nameSet[id] || len(id) < 4 {
 		return ""
@@ -1748,12 +1701,64 @@ func typoHintStrict(id string, nameSet map[string]bool) string {
 		if letters(lower) == letters(k) {
 			continue
 		}
-		d := levenshtein(lower, k)
-		if d <= 2 && d < bestD { // distance 1 (substitution) or 2 (transposition)
+		d := damerauLevenshtein(lower, k)
+		lev := levenshtein(lower, k)
+		// Allow only pure transposition (damerau=1, lev=2) or single substitution on longer names (damerau=1, lev=1, len>=6)
+		if d == 1 && (lev == 2 || (lev == 1 && len(id) >= 6)) && d < bestD {
 			best, bestD = k, d
 		}
 	}
 	return best
+}
+
+// suffixTypo checks a file base name (without .go) for GOOS/GOARCH suffix typos
+// following go/build's rules: it ignores everything before the first underscore,
+// removes a trailing _test, and only treats a part as GOOS when followed by a
+// known GOARCH. Returns the typo part and the suggested correction, or empty
+// strings if no typo is found.
+func suffixTypo(base string) (part, hint string) {
+	if !strings.Contains(base, "_") {
+		return "", ""
+	}
+	name := base[strings.Index(base, "_"):]
+	parts := strings.Split(name, "_")
+	// go/build removes a trailing _test before reading the suffix.
+	if len(parts) > 1 && parts[len(parts)-1] == "test" {
+		parts = parts[:len(parts)-1]
+	}
+	archSet := map[string]bool{}
+	for _, a := range knownArch {
+		archSet[a] = true
+	}
+	osSet := map[string]bool{}
+	for _, o := range knownOS {
+		osSet[o] = true
+	}
+	n := len(parts)
+	if n >= 1 {
+		last := parts[n-1]
+		// Last part is in GOARCH position: check against GOARCH names.
+		// Only flag same-length typos (transposition or substitution).
+		if hint := typoHintInSet(last, archSet); hint != "" && len(last) == len(hint) {
+			return last, hint
+		} else if !archSet[last] {
+			// No following GOARCH: last part is not in a GOOS position per go/build.
+			// Flag only strict same-length typos of GOOS names.
+			if hint := typoHintStrict(last, osSet); hint != "" {
+				return last, hint
+			}
+		}
+	}
+	// Second-to-last part is in GOOS position only when last is a known GOARCH.
+	// go/build reads _GOOS_GOARCH (after removing _test).
+	if n >= 2 && archSet[parts[n-1]] {
+		goos := parts[n-2]
+		// Only flag same-length typos in GOOS position.
+		if hint := typoHintInSet(goos, osSet); hint != "" && len(goos) == len(hint) {
+			return goos, hint
+		}
+	}
+	return "", ""
 }
 
 // otherToolchains are tags that TinyGo, GopherJS, App Engine and other
@@ -1790,6 +1795,48 @@ func levenshtein(a, b string) int {
 		prev, cur = cur, prev
 	}
 	return prev[len(b)]
+}
+
+// damerauLevenshtein computes the optimal string alignment distance,
+// which counts adjacent transpositions as a single edit. This is not the
+// full Damerau-Levenshtein (which allows multiple transpositions of the
+// same characters), but it correctly handles the typo patterns we care
+// about: swapped adjacent letters like "lniux" -> "linux".
+func damerauLevenshtein(a, b string) int {
+	da := make(map[rune]int)
+	maxDist := len(a) + len(b)
+	d := make([][]int, len(a)+2)
+	for i := range d {
+		d[i] = make([]int, len(b)+2)
+	}
+	d[0][0] = maxDist
+	for i := 0; i <= len(a); i++ {
+		d[i+1][0] = maxDist
+		d[i+1][1] = i
+	}
+	for j := 0; j <= len(b); j++ {
+		d[0][j+1] = maxDist
+		d[1][j+1] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		db := 0
+		for j := 1; j <= len(b); j++ {
+			i1 := da[rune(b[j-1])]
+			j1 := db
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+				db = j
+			}
+			substitution := d[i][j] + cost
+			insertion := d[i+1][j] + 1
+			deletion := d[i][j+1] + 1
+			transposition := d[i1][j1] + (i - i1 - 1) + 1 + (j - j1 - 1)
+			d[i+1][j+1] = min(substitution, insertion, deletion, transposition)
+		}
+		da[rune(a[i-1])] = i
+	}
+	return d[len(a)+1][len(b)+1]
 }
 
 func printText(w io.Writer, r *report) {
