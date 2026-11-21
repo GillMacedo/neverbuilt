@@ -1,44 +1,43 @@
 # Example workflow for checking Go files that the test job's CI builds cover.
 name: Example CI with neverbuilt
-
 on:
   push:
     branches: [main]
   pull_request:
-
 permissions:
   contents: read
-
 jobs:
+  # Single source of truth for the OS/arch/tags combinations. Both the test
+  # matrix and the neverbuilt --ci flags are built from this.
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      configs: ${{ steps.configs.outputs.configs }}
+    steps:
+      - name: Define CI configurations
+        id: configs
+        run: |
+          configs=$(jq -c . <<'JSON'
+          [
+            {"runner": "ubuntu-latest",  "goos": "linux",   "goarch": "amd64", "tags": ""},
+            {"runner": "ubuntu-latest",  "goos": "linux",   "goarch": "amd64", "tags": "integration"},
+            {"runner": "windows-latest", "goos": "windows", "goarch": "amd64", "tags": ""},
+            {"runner": "macos-latest",   "goos": "darwin",  "goarch": "arm64", "tags": ""}
+          ]
+          JSON
+          )
+          echo "configs=$configs" >> "$GITHUB_OUTPUT"
   test:
+    needs: setup
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
-        include:
-          - runner: ubuntu-latest
-            goos: linux
-            goarch: amd64
-            tags: ""
-          - runner: ubuntu-latest
-            goos: linux
-            goarch: amd64
-            tags: integration
-          - runner: windows-latest
-            goos: windows
-            goarch: amd64
-            tags: ""
-          - runner: macos-latest
-            goos: darwin
-            goarch: arm64
-            tags: ""
+        include: ${{ fromJSON(needs.setup.outputs.configs) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: stable
-          cache: true
-
       - name: Run tests
         shell: bash
         env:
@@ -50,25 +49,28 @@ jobs:
           else
             go test -tags="$TAGS" ./...
           fi
-
   neverbuilt:
+    needs: setup
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: stable
-          cache: true
-
-      # Keep this list in entry-for-entry sync with the test job's matrix above.
-# Findings (neverbuilt exit 1) and incomplete checks (neverbuilt exit 2)
-# both cause go run to exit non-zero and fail this job.
+      - name: Install neverbuilt
+        run: |
+          go install github.com/GillMacedo/neverbuilt/plugin/scripts@v0.2.1
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      # Findings (neverbuilt exit 1) and incomplete checks (neverbuilt exit 2)
+      # both cause this step to exit non-zero and fail the job.
       - name: Check untracked build files with neverbuilt
-        run: >-
-          go run github.com/GillMacedo/neverbuilt/plugin/scripts@v0.1.0
-          --dir .
-          --ci linux/amd64
-          --ci linux/amd64,integration
-          --ci windows/amd64
-          --ci darwin/arm64
+        env:
+          CONFIGS: ${{ needs.setup.outputs.configs }}
+        run: |
+          mapfile -t ci_args < <(echo "$CONFIGS" | jq -r '.[] | "\(.goos)/\(.goarch)" + (if .tags != "" then "," + .tags else "" end)')
+          args=()
+          # Built from the configs output
+          for c in "${ci_args[@]}"; do
+            args+=(--ci "$c")
+          done
+          scripts "${args[@]}"
