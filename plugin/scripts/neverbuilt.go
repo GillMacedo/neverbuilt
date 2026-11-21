@@ -455,6 +455,71 @@ func check(opts options, ports map[string]portInfo) (*report, error) {
 				})
 			}
 		}
+		// File-name suffixes like _windows.go and _linux_amd64.go name a
+		// GOOS or GOARCH. A misspelled suffix (lock_widnows.go) is not a
+		// known platform, so the file is compiled on every platform and
+		// nothing warns about the typo. Only positions that go/build reads
+		// as a suffix can be typos: go/build ignores everything before the
+		// first underscore, removes a trailing _test, and accepts a GOOS
+		// suffix only when the following part is a known GOARCH. A single
+		// edit that changes length (window -> windows) is not a suffix
+		// typo, because go/build never treats such a name as a platform.
+		{
+			base := strings.TrimSuffix(filepath.Base(f.Rel), ".go")
+			// go/build ignores everything before the first underscore.
+			// If there's no underscore, the whole name is the package name,
+			// not a suffix, so we don't check it.
+			if strings.Contains(base, "_") {
+				name := base[strings.Index(base, "_"):]
+				parts := strings.Split(name, "_")
+				// go/build removes a trailing _test before reading the suffix.
+				if len(parts) > 1 && parts[len(parts)-1] == "test" {
+					parts = parts[:len(parts)-1]
+				}
+				archSet := map[string]bool{}
+				for _, a := range knownArch {
+					archSet[a] = true
+				}
+				osSet := map[string]bool{}
+				for _, o := range knownOS {
+					osSet[o] = true
+				}
+				n := len(parts)
+				if n >= 1 {
+					last := parts[n-1]
+					// Last part is in GOARCH position: check against GOARCH names.
+					// Only flag same-length typos (transposition or substitution).
+					if hint := typoHintInSet(last, archSet); hint != "" && len(last) == len(hint) {
+						rep.Findings = append(rep.Findings, finding{
+							Severity: sevWarn, Kind: "typo", File: f.Rel,
+							Message: fmt.Sprintf("file name suffix %q looks like a misspelling of %q", last, hint),
+						})
+					} else if !archSet[last] {
+						// No following GOARCH: last part is not in a GOOS position per go/build.
+						// Flag only strict same-length typos of GOOS names (transposition or substitution).
+						// This avoids false positives on ordinary words like "window" (vs "windows").
+						if hint := typoHintStrict(last, osSet); hint != "" {
+							rep.Findings = append(rep.Findings, finding{
+								Severity: sevWarn, Kind: "typo", File: f.Rel,
+								Message: fmt.Sprintf("file name suffix %q looks like a misspelling of %q", last, hint),
+							})
+						}
+					}
+				}
+				// Second-to-last part is in GOOS position only when last is a known GOARCH.
+				// go/build reads _GOOS_GOARCH (after removing _test).
+				if n >= 2 && archSet[parts[n-1]] {
+					goos := parts[n-2]
+					// Only flag same-length typos in GOOS position.
+					if hint := typoHintInSet(goos, osSet); hint != "" && len(goos) == len(hint) {
+						rep.Findings = append(rep.Findings, finding{
+							Severity: sevWarn, Kind: "typo", File: f.Rel,
+							Message: fmt.Sprintf("file name suffix %q looks like a misspelling of %q", goos, hint),
+						})
+					}
+				}
+			}
+		}
 		if covered[f.Abs] {
 			rep.Covered++
 			continue
@@ -1608,6 +1673,84 @@ func typoHint(id string, known map[string]bool, uses int) string {
 			limit = 2
 		}
 		if d <= limit && d < bestD {
+			best, bestD = k, d
+		}
+	}
+	return best
+}
+
+// typoHintInSet checks if id is a typo (distance <= 2) of any name in the
+// given set, without the letters-equivalence check. Used for suffix positions
+// where we know the expected kind (GOOS or GOARCH).
+func typoHintInSet(id string, nameSet map[string]bool) string {
+	if nameSet[id] || len(id) < 4 {
+		return ""
+	}
+	lower := strings.ToLower(id)
+	if lower != id && nameSet[lower] {
+		return lower
+	}
+	if len(id) < 5 {
+		return ""
+	}
+	var names []string
+	for k := range nameSet {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	best, bestD := "", 99
+	for _, k := range names {
+		if len(k) < 4 {
+			continue
+		}
+		if lower == k {
+			return k
+		}
+		d := levenshtein(lower, k)
+		limit := 1
+		if len(k) >= 6 {
+			limit = 2
+		}
+		if d <= limit && d < bestD {
+			best, bestD = k, d
+		}
+	}
+	return best
+}
+
+// typoHintStrict checks if id is a strict typo (transposition or same-length
+// distance-1/2) of any name in the given set. Used for standalone suffixes that
+// look like GOOS but aren't followed by a GOARCH; go/build ignores them, but
+// we flag only very close matches to avoid false positives on ordinary words.
+func typoHintStrict(id string, nameSet map[string]bool) string {
+	if nameSet[id] || len(id) < 4 {
+		return ""
+	}
+	lower := strings.ToLower(id)
+	if lower != id && nameSet[lower] {
+		return lower
+	}
+	if len(id) < 5 {
+		return ""
+	}
+	var names []string
+	for k := range nameSet {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	best, bestD := "", 99
+	for _, k := range names {
+		if len(k) < 4 || len(k) != len(id) {
+			continue // strict: only same-length matches
+		}
+		if lower == k {
+			return k
+		}
+		if letters(lower) == letters(k) {
+			continue
+		}
+		d := levenshtein(lower, k)
+		if d <= 2 && d < bestD { // distance 1 (substitution) or 2 (transposition)
 			best, bestD = k, d
 		}
 	}

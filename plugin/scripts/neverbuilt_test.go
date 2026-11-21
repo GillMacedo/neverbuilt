@@ -350,3 +350,82 @@ func TestHeaderNeedsIgnore(t *testing.T) {
 		}
 	}
 }
+
+func TestFileNameSuffixTypo(t *testing.T) {
+	archSet := map[string]bool{}
+	for _, a := range knownArch {
+		archSet[a] = true
+	}
+	osSet := map[string]bool{}
+	for _, o := range knownOS {
+		osSet[o] = true
+	}
+
+	// Flagged cases: typo in GOARCH position (widnows -> windows via typoHintStrict since windows is GOOS not GOARCH)
+	flagged := []struct {
+		name string
+		base string
+	}{
+		{"lock_widnows.go", "lock_widnows"},
+		{"lock_widnows_test.go", "lock_widnows_test"},
+	}
+
+	// Quiet cases: should NOT be flagged as typo
+	quiet := []struct {
+		name string
+		base string
+	}{
+		{"ok_windows.go", "ok_windows"},   // valid GOOS suffix (_windows), no following GOARCH
+		{"main_window.go", "main_window"}, // GOOS-like suffix but not followed by GOARCH
+		{"window.go", "window"},           // no underscore, not a suffix position
+	}
+
+	// Helper to check if a base name would be flagged
+	checkSuffix := func(base string) (flagged bool, hint string) {
+		if !strings.Contains(base, "_") {
+			return false, ""
+		}
+		namePart := base[strings.Index(base, "_"):]
+		parts := strings.Split(namePart, "_")
+		if len(parts) > 1 && parts[len(parts)-1] == "test" {
+			parts = parts[:len(parts)-1]
+		}
+		n := len(parts)
+		if n >= 1 {
+			last := parts[n-1]
+			// Check GOARCH position
+			if hint := typoHintInSet(last, archSet); hint != "" && len(last) == len(hint) {
+				return true, hint
+			} else if !archSet[last] {
+				// Check GOOS position (strict, since no following GOARCH)
+				if hint := typoHintStrict(last, osSet); hint != "" {
+					return true, hint
+				}
+			}
+		}
+		// Check GOOS position (only when last is known GOARCH)
+		if n >= 2 && archSet[parts[n-1]] {
+			goos := parts[n-2]
+			if hint := typoHintInSet(goos, osSet); hint != "" && len(goos) == len(hint) {
+				return true, hint
+			}
+		}
+		return false, ""
+	}
+
+	for _, tc := range flagged {
+		f, h := checkSuffix(tc.base)
+		if !f {
+			t.Errorf("%s (base=%q): expected typo finding, got none", tc.name, tc.base)
+		} else if h != "windows" {
+			t.Errorf("%s (base=%q): got hint %q, want windows", tc.name, tc.base, h)
+		}
+	}
+
+	for _, tc := range quiet {
+		f, h := checkSuffix(tc.base)
+		if f {
+			t.Errorf("%s (base=%q): unexpected typo finding %q (should be quiet)", tc.name, tc.base, h)
+		}
+	}
+}
