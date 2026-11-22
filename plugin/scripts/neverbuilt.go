@@ -472,9 +472,9 @@ func check(opts options, ports map[string]portInfo) (*report, error) {
 			}
 		}
 		if covered[f.Abs] {
-					rep.Covered++
-					continue
-				}
+			rep.Covered++
+			continue
+		}
 		if t := ignoredBy(f, opts.ignoreTags, known, order, ports); t != "" {
 			rep.Findings = append(rep.Findings, finding{
 				Severity: sevNote, Kind: "ignored", File: f.Rel,
