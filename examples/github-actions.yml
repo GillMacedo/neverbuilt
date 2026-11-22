@@ -1,11 +1,14 @@
 # Example workflow for checking Go files that the test job's CI builds cover.
 name: Example CI with neverbuilt
+
 on:
   push:
     branches: [main]
   pull_request:
+
 permissions:
   contents: read
+
 jobs:
   # Single source of truth for the OS/arch/tags combinations. Both the test
   # matrix and the neverbuilt --ci flags are built from this.
@@ -27,6 +30,7 @@ jobs:
           JSON
           )
           echo "configs=$configs" >> "$GITHUB_OUTPUT"
+
   test:
     needs: setup
     runs-on: ${{ matrix.runner }}
@@ -35,9 +39,11 @@ jobs:
         include: ${{ fromJSON(needs.setup.outputs.configs) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: stable
+
       - name: Run tests
         shell: bash
         env:
@@ -49,27 +55,34 @@ jobs:
           else
             go test -tags="$TAGS" ./...
           fi
+
   neverbuilt:
     needs: setup
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: stable
+
+      # go install names the binary after the package directory: scripts.
       - name: Install neverbuilt
-        run: |
-          go install github.com/GillMacedo/neverbuilt/plugin/scripts@v0.2.1
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+        run: go install github.com/GillMacedo/neverbuilt/plugin/scripts@v0.2.1
+
       # Findings (neverbuilt exit 1) and incomplete checks (neverbuilt exit 2)
       # both cause this step to exit non-zero and fail the job.
       - name: Check untracked build files with neverbuilt
         env:
           CONFIGS: ${{ needs.setup.outputs.configs }}
         run: |
+          set -eo pipefail
           mapfile -t ci_args < <(echo "$CONFIGS" | jq -r '.[] | "\(.goos)/\(.goarch)" + (if .tags != "" then "," + .tags else "" end)')
+          if (( ${#ci_args[@]} == 0 )); then
+            echo "::error::No CI configurations parsed from setup output. Check that needs.setup.outputs.configs is set."
+            exit 1
+          fi
           args=()
-          # Built from the configs output
           for c in "${ci_args[@]}"; do
             args+=(--ci "$c")
           done
