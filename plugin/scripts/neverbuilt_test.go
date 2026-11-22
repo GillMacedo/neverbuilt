@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"go/build/constraint"
 	"os"
 	"path/filepath"
@@ -59,6 +60,19 @@ func TestConfigString(t *testing.T) {
 	c := config{GOOS: "linux", GOARCH: "amd64", Tags: []string{"a", "b"}, Cgo: true}
 	if got := c.String(); got != "linux/amd64,a,b,cgo" {
 		t.Errorf("String() = %q", got)
+	}
+}
+
+func TestConfigMarshalJSON(t *testing.T) {
+	c := config{GOOS: "linux", GOARCH: "amd64"}
+	gotBytes, err := json.Marshal(c)
+	if err != nil {
+		t.Fatalf("json.Marshal failed: %v", err)
+	}
+	got := string(gotBytes)
+	want := `{"goos":"linux","goarch":"amd64","tags":[],"cgo":false}`
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }
 

@@ -46,6 +46,17 @@ type config struct {
 	Cgo    bool     `json:"cgo"`
 }
 
+func (c config) MarshalJSON() ([]byte, error) {
+	type raw config
+	alias := raw(c)
+
+	if alias.Tags == nil {
+		alias.Tags = []string{}
+	}
+
+	return json.Marshal(alias)
+}
+
 func newConfig(goos, goarch string, tags []string, cgo bool) config {
 	return config{GOOS: goos, GOARCH: goarch, Tags: append([]string{}, tags...), Cgo: cgo}
 }

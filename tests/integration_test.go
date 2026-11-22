@@ -187,7 +187,6 @@ func TestShipyardJSON(t *testing.T) {
 		t.Fatalf("exit %d, want 1:\n%s", r.code, r.stderr)
 	}
 	type config struct {
-		Name   string   `json:"-"`
 		GOOS   string   `json:"goos"`
 		GOARCH string   `json:"goarch"`
 		Tags   []string `json:"tags"`
@@ -215,20 +214,44 @@ func TestShipyardJSON(t *testing.T) {
 			t.Errorf("structured CI config = %+v", ci)
 		}
 	}
-	wantSuggested := []config{
-		{Name: "linux/amd64,integration", GOOS: "linux", GOARCH: "amd64", Tags: []string{"integration"}},
-		{Name: "windows/amd64", GOOS: "windows", GOARCH: "amd64", Tags: []string{}},
+	wantSuggested := map[string]config{
+		"linux/amd64,integration": {GOOS: "linux", GOARCH: "amd64", Tags: []string{"integration"}},
+		"windows/amd64":           {GOOS: "windows", GOARCH: "amd64", Tags: []string{}},
 	}
-	if len(rep.Suggested) != len(wantSuggested) || len(rep.SuggestedConfigs) != len(wantSuggested) {
-		t.Errorf("suggestions = %v / %+v", rep.Suggested, rep.SuggestedConfigs)
+	if len(rep.Suggested) != len(wantSuggested) ||
+		len(rep.SuggestedConfigs) != len(wantSuggested) {
+		t.Errorf("suggestions = %v / %+v, want %d",
+			rep.Suggested, rep.SuggestedConfigs, len(wantSuggested))
 	} else {
-		for i, want := range wantSuggested {
-			if rep.Suggested[i] != want.Name {
-				t.Errorf("suggested[%d] = %q, want %q", i, rep.Suggested[i], want.Name)
+		seen := map[string]bool{}
+
+		for i, name := range rep.Suggested {
+			want, ok := wantSuggested[name]
+			if !ok {
+				t.Errorf("unexpected suggested[%d] = %q", i, name)
+				continue
 			}
+
+			if seen[name] {
+				t.Errorf("duplicate suggestion %q", name)
+			}
+			seen[name] = true
+
 			got := rep.SuggestedConfigs[i]
-			if got.GOOS != want.GOOS || got.GOARCH != want.GOARCH || got.Tags == nil || strings.Join(got.Tags, ",") != strings.Join(want.Tags, ",") || got.Cgo != want.Cgo {
-				t.Errorf("suggested_configs[%d] = %+v, want %+v", i, got, want)
+
+			if got.GOOS != want.GOOS ||
+				got.GOARCH != want.GOARCH ||
+				got.Tags == nil ||
+				strings.Join(got.Tags, ",") != strings.Join(want.Tags, ",") ||
+				got.Cgo != want.Cgo {
+				t.Errorf("suggested_configs[%d] for %s = %+v, want %+v",
+					i, name, got, want)
+			}
+		}
+
+		for name := range wantSuggested {
+			if !seen[name] {
+				t.Errorf("missing suggestion %q", name)
 			}
 		}
 	}
@@ -263,7 +286,15 @@ func TestFixedJSONEmitsEmptySuggestionArrays(t *testing.T) {
 	if r.code != 0 {
 		t.Fatalf("exit %d, want 0:\n%s%s", r.code, r.stdout, r.stderr)
 	}
+
+	type config struct {
+		GOOS   string   `json:"goos"`
+		GOARCH string   `json:"goarch"`
+		Tags   []string `json:"tags"`
+		Cgo    bool     `json:"cgo"`
+	}
 	var rep struct {
+		CIConfigs        []config          `json:"ci_configs"`
 		Suggested        []string          `json:"suggested"`
 		SuggestedConfigs []json.RawMessage `json:"suggested_configs"`
 	}
@@ -275,6 +306,41 @@ func TestFixedJSONEmitsEmptySuggestionArrays(t *testing.T) {
 	}
 	if rep.SuggestedConfigs == nil || len(rep.SuggestedConfigs) != 0 {
 		t.Errorf("suggested_configs = %v, want empty array", rep.SuggestedConfigs)
+	}
+
+	if len(rep.CIConfigs) != 3 {
+		t.Fatalf("ci_configs = %v, want 3 configs", rep.CIConfigs)
+	}
+
+	for i, c := range rep.CIConfigs {
+		if c.Tags == nil {
+			t.Errorf("ci_configs[%d].tags = nil, want non-nil slice", i)
+		}
+	}
+}
+
+func TestCleanJSONEmitsEmptyFindings(t *testing.T) {
+	scriptsDir := filepath.Join("..", "plugin", "scripts")
+	r := runTool(t, nil, args(scriptsDir, "--format", "json", "--no-compile", "--ci", "linux/amd64")...)
+	if r.code != 0 {
+		t.Fatalf("exit %d, want 0:\n%s%s", r.code, r.stdout, r.stderr)
+	}
+	var rep struct {
+		Findings  []json.RawMessage `json:"findings"`
+		CIConfigs []struct {
+			Tags []string `json:"tags"`
+		} `json:"ci_configs"`
+	}
+	if err := json.Unmarshal([]byte(r.stdout), &rep); err != nil {
+		t.Fatalf("bad JSON: %v\n%s", err, r.stdout)
+	}
+	if rep.Findings == nil || len(rep.Findings) != 0 {
+		t.Errorf("findings = %v, want empty array []", rep.Findings)
+	}
+	for i, c := range rep.CIConfigs {
+		if c.Tags == nil || len(c.Tags) != 0 {
+			t.Errorf("ci_configs[%d].tags = %v, want empty array []", i, c.Tags)
+		}
 	}
 }
 
