@@ -35,7 +35,7 @@ func tool(t *testing.T) string {
 			exe = ".exe"
 		}
 		toolPath = filepath.Join(dir, "neverbuilt"+exe)
-		cmd := exec.Command("go", "build", "-o", toolPath, "./plugin/scripts")
+		cmd := exec.Command("go", "build", "-buildvcs=false", "-o", toolPath, "./plugin/scripts")
 		cmd.Dir = ".."
 		buildOut, buildErr = cmd.CombinedOutput()
 	})
@@ -725,4 +725,43 @@ func TestIgnoredTemplateIsSkipped(t *testing.T) {
 		"tmpl/x.go": "//go:build linux\n\npackage {{.Pkg}}\n",
 	}))
 	assertUntrusted(t, r, "unparseable file without ignore tag")
+}
+
+func TestFileNameSuffixTypo(t *testing.T) {
+	dir := writeModule(t, map[string]string{
+		"lock_widnows.go":      "package p\n\nfunc lockDir() {}\n",
+		"lock_widnows_test.go": "package p\n\nimport \"testing\"\n\nfunc TestLock(t *testing.T) {}\n",
+		"ok_windows.go":        "package p\n\nfunc ok() {}\n",
+		"main_window.go":       "package p\n\nfunc main() {}\n",
+		"window.go":            "package p\n\nfunc window() {}\n",
+		"page_margin.go":       "package p\n\nfunc PageMargin() {}\n",
+		"text_lines.go":        "package p\n\nfunc TextLines() {}\n",
+		"file_plans.go":        "package p\n\nfunc FilePlans() {}\n",
+		"sys_lniux_amd64.go":   "package p\n\nfunc SysLinuxAmd64() {}\n",
+		"sys_linux_amd46.go":   "package p\n\nfunc SysLinuxAmd46() {}\n",
+	})
+	r := runTool(t, nil, args(dir)...)
+
+	// Flagged cases: real typos in suffixes.
+	mustContain(t, r, `lock_widnows.go`)
+	mustContain(t, r, `lock_widnows_test.go`)
+	mustContain(t, r, `sys_lniux_amd64.go`)
+	mustContain(t, r, `sys_linux_amd46.go`)
+	mustContain(t, r, `file name suffix "widnows" looks like a misspelling of "windows"`)
+	mustContain(t, r, `file name suffix "lniux" looks like a misspelling of "linux"`)
+	mustContain(t, r, `file name suffix "amd46" looks like a misspelling of "amd64"`)
+
+	// Quiet cases: must NOT be flagged for any file-name suffix typo.
+	quietFiles := []string{"ok_windows.go", "main_window.go", "window.go", "page_margin.go", "text_lines.go", "file_plans.go"}
+	for _, f := range quietFiles {
+		lines := strings.Split(r.stdout, "\n")
+		for i, line := range lines {
+			if strings.Contains(line, f) && i+1 < len(lines) {
+				nextLine := lines[i+1]
+				if strings.Contains(nextLine, "file name suffix") {
+					t.Errorf("%s was flagged for a file name suffix typo:\n%s", f, r.stdout)
+				}
+			}
+		}
+	}
 }

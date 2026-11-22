@@ -350,3 +350,46 @@ func TestHeaderNeedsIgnore(t *testing.T) {
 		}
 	}
 }
+
+func TestFileNameSuffixTypo(t *testing.T) {
+	// Flagged cases: a typo is reported for the base name.
+	flagged := []struct {
+		name string
+		base string
+		hint string
+	}{
+		{"lock_widnows.go", "lock_widnows", "windows"},
+		{"lock_widnows_test.go", "lock_widnows_test", "windows"},
+		{"sys_lniux_amd64.go", "sys_lniux_amd64", "linux"},
+		{"sys_linux_amd46.go", "sys_linux_amd46", "amd64"},
+	}
+
+	// Quiet cases: no typo is reported.
+	quiet := []struct {
+		name string
+		base string
+	}{
+		{"ok_windows.go", "ok_windows"},   // valid GOOS suffix, no following GOARCH
+		{"main_window.go", "main_window"}, // GOOS-like suffix but not followed by GOARCH
+		{"window.go", "window"},           // no underscore, not a suffix position
+		{"page_margin.go", "page_margin"}, // ordinary word, must stay quiet
+		{"text_lines.go", "text_lines"},   // ordinary word, must stay quiet
+		{"file_plans.go", "file_plans"},   // ordinary word, must stay quiet
+	}
+
+	for _, tc := range flagged {
+		part, hint := suffixTypo(tc.base)
+		if part == "" {
+			t.Errorf("%s (base=%q): expected typo finding, got none", tc.name, tc.base)
+		} else if hint != tc.hint {
+			t.Errorf("%s (base=%q): got hint %q, want %q", tc.name, tc.base, hint, tc.hint)
+		}
+	}
+
+	for _, tc := range quiet {
+		part, hint := suffixTypo(tc.base)
+		if part != "" {
+			t.Errorf("%s (base=%q): unexpected typo finding %q (should be quiet)", tc.name, tc.base, hint)
+		}
+	}
+}
